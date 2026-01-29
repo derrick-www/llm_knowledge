@@ -102,8 +102,7 @@ def call_gemini(api_key: str, model: str, prompt: str, temperature: float = 0.8)
         genai.configure(api_key=api_key)
         model_name = "gemini-3-flash-preview"
         gemini_model = genai.GenerativeModel(
-                    model_name=model_name,
-                    system_instruction=SYSTEM_PROMPT,
+                    model_name=model_name
                 )
         max_retries = 3
         base_delay = 5.0
@@ -117,7 +116,7 @@ def call_gemini(api_key: str, model: str, prompt: str, temperature: float = 0.8)
                 time.sleep(delay)
             
             response = gemini_model.generate_content(
-                prompt,
+                SYSTEM_PROMPT,
                 generation_config=generation_config,
                 request_options={"timeout": 120}
             )
