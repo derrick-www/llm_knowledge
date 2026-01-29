@@ -209,23 +209,12 @@ def main():
           
 
     logging.debug("LLM raw response: %s", (text or "")[:1000])
-    parsed = parse_json_from_text(text)
-    if parsed:
-        message = format_message(parsed)
-        logging.info("Parsed JSON and formatted message:\n%s", message)
-        send_to_feishu(FEISHU_WEBHOOK, message)
-        return 0
-    else:
-        last_err = f"无法从 LLM 响应中解析出 JSON，响应文本：{(text or '')[:400]}"
-        logging.warning("Attempt %d: %s", attempt + 1, last_err)
-        
 
-    try:
-        send_to_feishu(FEISHU_WEBHOOK, f"每日知识点任务失败：{last_err}")
-    except Exception:
-        pass
-    return 1
+    send_to_feishu(FEISHU_WEBHOOK, text)
+    return 0
+   
 
+   
 
 if __name__ == "__main__":
     raise SystemExit(main())
