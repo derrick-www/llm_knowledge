@@ -88,126 +88,48 @@ def call_gemini(api_key: str, model: str, prompt: str, temperature: float = 0.8)
     返回字符串（LLM 的原始文本）
     """
     try:
-        from google import genai
+        # from google import genai
+        import google.generativeai as genai
     except Exception as e:
         raise RuntimeError(
             "google-genai not installed. Install with: pip install google-genai\n" f"orig: {e}"
         )
 
     try:
+        SYSTEM_PROMPT = """你是一位大模型专家，精通大模型面试题，随机给出一个大模型面试题，并给出详细的答案。"""
         logging.info("Calling Gemini via google-genai (model=%s)", model)
-        client = genai.Client(api_key=api_key)
-        # daily_stock_analysis 使用 generate_content -> try to be compatible
-        # Some genai versions use client.models.generate() or client.models.generate_content()
-        # Try generate_content first, fall back to generate
-        try:
-            response = client.models.generate_content(model=model, contents=prompt)
-            # response may have .text or dict-like structure
-            if hasattr(response, "text"):
+        
+        genai.configure(api_key=api_key)
+        model_name = "gemini-3-flash-preview"
+        gemini_model = genai.GenerativeModel(
+                    model_name=model_name,
+                    system_instruction=SYSTEM_PROMPT,
+                )
+        max_retries = 3
+        base_delay = 5.0
+        for attempt in range(max_retries):
+        
+            # 请求前增加延时（防止请求过快触发限流）
+            if attempt > 0:
+                delay = base_delay * (2 ** (attempt - 1))  # 指数退避: 5, 10, 20, 40...
+                delay = min(delay, 60)  # 最大60秒
+                logger.info(f"[Gemini] 第 {attempt + 1} 次重试，等待 {delay:.1f} 秒...")
+                time.sleep(delay)
+            
+            response = self._model.generate_content(
+                prompt,
+                generation_config=generation_config,
+                request_options={"timeout": 120}
+            )
+            
+            if response and response.text:
                 return response.text
-            # if it's dict-like
-            try:
-                return response["candidates"][0]["content"] if "candidates" in response else json.dumps(response, ensure_ascii=False)
-            except Exception:
-                return json.dumps(response, ensure_ascii=False)
-        except AttributeError:
-            # try alternative API
-            response = client.models.generate(model=model, prompt=prompt)
-            if hasattr(response, "text"):
-                return response.text
-            try:
-                # try to extract from returned structure
-                return response["candidates"][0]["content"] if "candidates" in response else json.dumps(response, ensure_ascii=False)
-            except Exception:
-                return json.dumps(response, ensure_ascii=False)
+            else:
+                raise RuntimeError(f"Gemini 请求失败: {response.text}")
+        
     except Exception as e:
         # rethrow with context
         raise RuntimeError(f"Gemini call failed: {e}")
-
-
-# ------------------------------
-# OpenAI 调用（兼容新版/旧版 SDK）
-# ------------------------------
-def call_openai_chat(api_key: str, model: str, prompt: str, temperature: float = 0.8) -> str:
-    if not api_key:
-        raise RuntimeError("OpenAI API key not provided")
-    if HAS_OPENAI_V1:
-        logging.info("Using openai>=1.0.0 client")
-        client = OpenAI(api_key=api_key)
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "你是一个帮助用户输出 JSON 数据的助手，严格按要求返回 JSON。"},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=temperature,
-            max_tokens=800,
-        )
-        try:
-            return resp.choices[0].message["content"]
-        except Exception:
-            return json.dumps(resp, ensure_ascii=False)
-    elif HAS_OPENAI_OLD:
-        logging.info("Using legacy openai client")
-        import openai as _openai  # type: ignore
-        _openai.api_key = api_key
-        resp = _openai.ChatCompletion.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "你是一个帮助用户输出 JSON 数据的助手，严格按要求返回 JSON。"},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=temperature,
-            max_tokens=800,
-        )
-        try:
-            return resp.choices[0].message.content
-        except Exception:
-            return json.dumps(resp, ensure_ascii=False)
-    else:
-        raise RuntimeError("openai package is not installed. Install openai>=1.0.0 or legacy client.")
-
-
-# ------------------------------
-# Generic HTTP LLM 调用（适用于自建服务或 Vertex endpoint）
-# ------------------------------
-def call_generic_llm(api_key: str, api_url: str, prompt: str, temperature: float = 0.8) -> str:
-    if not api_url:
-        raise RuntimeError("LLM_API_URL must be set when using generic provider.")
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    payload = {
-        "model": os.getenv("LLM_MODEL", ""),
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": temperature,
-    }
-    logging.info("Calling generic LLM API: %s", api_url)
-    r = requests.post(api_url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
-    r.raise_for_status()
-    data = r.json()
-    # 简单解析常见字段
-    if isinstance(data, dict):
-        if "choices" in data and data["choices"]:
-            first = data["choices"][0]
-            if isinstance(first.get("message"), dict):
-                return first["message"].get("content", "") or ""
-            if "text" in first:
-                return first.get("text", "")
-        for key in ("output", "candidates", "text", "generated_text", "content", "result"):
-            if key in data:
-                val = data[key]
-                if isinstance(val, str):
-                    return val
-                if isinstance(val, list) and val:
-                    if isinstance(val[0], dict):
-                        for k in ("content", "text", "output"):
-                            if k in val[0]:
-                                return val[0][k]
-                    elif isinstance(val[0], str):
-                        return val[0]
-    return json.dumps(data, ensure_ascii=False)
-
 
 # ------------------------------
 # 辅助函数：解析 / 格式化 / 发送到飞书
@@ -275,52 +197,26 @@ def main():
 
     # Determine which credentials to use
     # Priority for Gemini: GEMINI_API_KEY -> LLM_API_KEY
-    gemini_key = GEMINI_API_KEY or LLM_API_KEY
-
-    if LLM_PROVIDER == "gemini":
-        if not gemini_key:
-            logging.error("LLM_PROVIDER=gemini，但未提供 GEMINI_API_KEY 或 LLM_API_KEY，退出。")
-            return 3
-    elif LLM_PROVIDER == "openai":
-        if not LLM_API_KEY:
-            logging.error("LLM_PROVIDER=openai，但未提供 LLM_API_KEY（OpenAI key），退出。")
-            return 3
-    elif LLM_PROVIDER == "generic":
-        if not LLM_API_URL:
-            logging.error("LLM_PROVIDER=generic，但未设置 LLM_API_URL，退出。")
-            return 3
-        if not LLM_API_KEY:
-            logging.warning("LLM_PROVIDER=generic，但未设置 LLM_API_KEY（可能是无鉴权服务或 token 将在 runtime 注入）")
+    gemini_key = LLM_API_KEY
 
     text = None
     last_err = None
-    for attempt in range(3):
-        try:
-            # if LLM_PROVIDER == "gemini":
-            #     # call gemini
-            text = call_gemini(gemini_key, GEMINI_MODEL, PROMPT_USER, temperature=0.8)
-            # elif LLM_PROVIDER == "openai":
-            #     text = call_openai_chat(LLM_API_KEY, os.getenv("LLM_MODEL", "gpt-3.5-turbo"), PROMPT_USER, temperature=0.8)
-            # else:
-            #     # generic
-            #     text = call_generic_llm(LLM_API_KEY, LLM_API_URL, PROMPT_USER, temperature=0.8)
+    
+    text = call_gemini(gemini_key, GEMINI_MODEL, PROMPT_USER, temperature=0.8)
+          
 
-            logging.debug("LLM raw response: %s", (text or "")[:1000])
-            parsed = parse_json_from_text(text)
-            if parsed:
-                message = format_message(parsed)
-                logging.info("Parsed JSON and formatted message:\n%s", message)
-                send_to_feishu(FEISHU_WEBHOOK, message)
-                return 0
-            else:
-                last_err = f"无法从 LLM 响应中解析出 JSON，响应文本：{(text or '')[:400]}"
-                logging.warning("Attempt %d: %s", attempt + 1, last_err)
-        except Exception as e:
-            last_err = str(e)
-            logging.exception("Attempt %d failed: %s", attempt + 1, last_err)
-        time.sleep(2 + attempt * 2)
+    logging.debug("LLM raw response: %s", (text or "")[:1000])
+    parsed = parse_json_from_text(text)
+    if parsed:
+        message = format_message(parsed)
+        logging.info("Parsed JSON and formatted message:\n%s", message)
+        send_to_feishu(FEISHU_WEBHOOK, message)
+        return 0
+    else:
+        last_err = f"无法从 LLM 响应中解析出 JSON，响应文本：{(text or '')[:400]}"
+        logging.warning("Attempt %d: %s", attempt + 1, last_err)
+        
 
-    logging.error("所有尝试失败：%s", last_err)
     try:
         send_to_feishu(FEISHU_WEBHOOK, f"每日知识点任务失败：{last_err}")
     except Exception:
