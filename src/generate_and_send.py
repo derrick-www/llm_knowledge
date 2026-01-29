@@ -106,6 +106,10 @@ def call_gemini(api_key: str, model: str, prompt: str, temperature: float = 0.8)
                 )
         max_retries = 3
         base_delay = 5.0
+        generation_config = {
+            "temperature": 0.7,
+            "max_output_tokens": 8192,
+        }
         for attempt in range(max_retries):
         
             # 请求前增加延时（防止请求过快触发限流）
