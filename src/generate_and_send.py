@@ -216,10 +216,10 @@ def main():
     last_err = None
     for attempt in range(3):
         try:
-            if LLM_PROVIDER.lower() == "openai":
-                text = call_openai_chat(LLM_API_KEY, LLM_MODEL, PROMPT_USER, temperature=0.8)
-            else:
-                text = call_generic_llm(LLM_API_KEY, LLM_API_URL, PROMPT_USER, temperature=0.8)
+            # if LLM_PROVIDER.lower() == "openai":
+            #     text = call_openai_chat(LLM_API_KEY, LLM_MODEL, PROMPT_USER, temperature=0.8)
+            # else:
+            text = call_generic_llm(LLM_API_KEY, LLM_API_URL, PROMPT_USER, temperature=0.8)
             logging.debug("LLM raw response: %s", text)
             parsed = parse_json_from_text(text)
             if parsed:
