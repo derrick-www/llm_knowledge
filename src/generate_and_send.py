@@ -96,7 +96,16 @@ def call_gemini(api_key: str, model: str, prompt: str, temperature: float = 0.8)
         )
 
     try:
-        SYSTEM_PROMPT = """你是一位大模型专家，精通大模型面试题，随机给出一个大模型面试题，并给出详细的答案。"""
+        # SYSTEM_PROMPT = """你是一位大模型专家，精通大模型面试题，随机给出一个大模型面试题，并给出详细的答案。"""
+        SYSTEM_PROMPT = (
+            "你是一位大模型专家，精通大模型面试题，随机给出一个大模型面试题，并给出详细的答案"
+            " 返回内容必须是严格的 JSON（不要包含其他文本），格式如下："
+            '{"problem": "...", "ans": "...", }。'
+            " 各字段说明：\n"
+            "- problem: 题目\n"
+            "- ans: 答案\n"
+            "请保证输出是单纯的 JSON 对象，且能被标准 JSON 解析。"
+        )
         logging.info("Calling Gemini via google-genai (model=%s)", model)
         
         genai.configure(api_key=api_key)
@@ -159,20 +168,39 @@ def parse_json_from_text(text: str) -> Optional[dict]:
 
 
 def format_message(data: dict) -> str:
-    topic = data.get("topic", "").strip()
-    explanation = data.get("explanation", "").strip()
-    example = data.get("example", "").strip()
-    source = data.get("source", "").strip()
-    parts = []
-    if topic:
-        parts.append(f"主题：{topic}")
-    if explanation:
-        parts.append(f"解释：{explanation}")
-    if example:
-        parts.append(f"举例：{example}")
-    if source:
-        parts.append(f"参考：{source}")
-    return "\n".join(parts)
+    message = {
+        "msg_type": "interactive",
+        "card": {
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {
+                        "content": f"**题目:** {data['problem']}\n",
+                        "tag": "lark_md"
+                    }
+                },
+                {
+                    "tag": "hr"
+                },
+                {
+                    "tag": "div",
+                    "text": {
+                        "content": f"**答案**\n{data['ans']}",
+                        "tag": "lark_md"
+                    }
+                }
+               
+                
+            ],
+            "header": {
+                "template": "wathet",
+                "title": {
+                    "content": f"📝 题目：{data['problem']}",
+                    "tag": "plain_text"
+                }
+            }
+        }
+    }
 
 
 def send_to_feishu(webhook: str, text: str) -> None:
@@ -206,11 +234,19 @@ def main():
     last_err = None
     
     text = call_gemini(gemini_key, GEMINI_MODEL, PROMPT_USER, temperature=0.8)
-          
+    parsed = parse_json_from_text(text)
+    if parsed:
+        message = format_message(parsed)
+        logging.info("Parsed JSON and formatted message:\n%s", message)
+        send_to_feishu(FEISHU_WEBHOOK, message)
+        return 0
+    else:
+        last_err = f"无法从 LLM 响应中解析出 JSON，响应文本：{(text or '')[:400]}"
+        logging.warning("Attempt %d: %s", attempt + 1, last_err)  
 
     logging.debug("LLM raw response: %s", (text or "")[:1000])
 
-    send_to_feishu(FEISHU_WEBHOOK, text)
+    # send_to_feishu(FEISHU_WEBHOOK, text)
     return 0
    
 
