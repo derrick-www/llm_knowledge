@@ -202,7 +202,8 @@ def send_to_feishu(webhook: str, text: str) -> None:
     headers = {"Content-Type": "application/json; charset=utf-8"}
     payload = {"msg_type": "text", "content": {"text": text}}
     logging.info("Sending message to Feishu webhook")
-    r = requests.post(webhook, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
+    # r = requests.post(webhook, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
+    r = requests.post(webhook, headers={"Content-Type": "application/json"}, data=json.dumps(text))
     try:
         r.raise_for_status()
     except Exception as e:
