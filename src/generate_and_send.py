@@ -65,8 +65,13 @@ logging.info("LLM_PROVIDER=%s", LLM_PROVIDER)
 
 
 PROMPT_USER = (
-    "知识点。"
-   
+    "你是一位大模型专家，精通大模型面试题，随机给出一个大模型面试题，并给出详细的答案"
+    " 返回内容必须是严格的 JSON（不要包含其他文本），格式如下："
+    '{"problem": "...", "solution": "..."}。'
+    " 各字段说明：\n"
+    "- problem: 题目 \n"
+    "- solution: 面试题答案 \n"
+    "请保证输出是单纯的 JSON 对象，且能被标准 JSON 解析。"
 )
 
 
@@ -89,16 +94,7 @@ def call_gemini(api_key: str, model: str, prompt: str, temperature: float = 0.8)
         )
 
     try:
-        # SYSTEM_PROMPT = """你是一位大模型专家，精通大模型面试题，随机给出一个大模型面试题，并给出详细的答案。"""
-        SYSTEM_PROMPT = (
-            "你是一位大模型专家，精通大模型面试题，随机给出一个大模型面试题，并给出详细的答案"
-            " 返回内容必须是严格的 JSON（不要包含其他文本），格式如下："
-            '{"problem": "...", "ans": "...", }。'
-            " 各字段说明：\n"
-            "- problem: 题目\n"
-            "- ans: 答案\n"
-            "请保证输出是单纯的 JSON 对象，且能被标准 JSON 解析。"
-        )
+       
         logging.info("Calling Gemini via google-genai (model=%s)", model)
         
         genai.configure(api_key=api_key)
@@ -122,7 +118,7 @@ def call_gemini(api_key: str, model: str, prompt: str, temperature: float = 0.8)
                 time.sleep(delay)
             
             response = gemini_model.generate_content(
-                SYSTEM_PROMPT,
+                PROMPT_USER,
                 generation_config=generation_config,
                 request_options={"timeout": 120}
             )
@@ -178,7 +174,7 @@ def format_message(data: dict) -> str:
                 {
                     "tag": "div",
                     "text": {
-                        "content": f"**答案**\n{data['ans']}",
+                        "content": f"**答案**\n{data['solution']}",
                         "tag": "lark_md"
                     }
                 }
@@ -194,6 +190,7 @@ def format_message(data: dict) -> str:
             }
         }
     }
+    return message
 
 
 def send_to_feishu(webhook: str, text: str) -> None:
@@ -202,7 +199,6 @@ def send_to_feishu(webhook: str, text: str) -> None:
     headers = {"Content-Type": "application/json; charset=utf-8"}
     payload = {"msg_type": "text", "content": {"text": text}}
     logging.info("Sending message to Feishu webhook")
-    # r = requests.post(webhook, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
     r = requests.post(webhook, headers={"Content-Type": "application/json"}, data=json.dumps(text))
     try:
         r.raise_for_status()
